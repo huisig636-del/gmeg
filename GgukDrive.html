@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>꾹드라이브 (Gguk Drive)</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --border: #e2e8f0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); padding: 20px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid var(--border); }
+    h1 { color: var(--primary); display: flex; align-items: center; gap: 8px; }
+    
+    .card { background: var(--card-bg); padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid var(--border); }
+    .card h3 { margin-bottom: 12px; font-size: 1.1rem; }
+
+    .storage-bar-container { background: #e2e8f0; border-radius: 8px; height: 16px; overflow: hidden; margin: 8px 0; }
+    .storage-bar { background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease; }
+    .storage-text { font-size: 0.85rem; color: #64748b; text-align: right; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #475569; }
+    input[type="text"], input[type="file"], select, textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; margin-bottom: 12px; }
+    
+    button { background: var(--primary); color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+    button:hover { background: var(--primary-hover); }
+    button.secondary { background: #64748b; }
+    button.secondary:hover { background: #475569; }
+    button.danger { background: #ef4444; }
+    button.danger:hover { background: #dc2626; }
+    button.sm { padding: 6px 10px; font-size: 0.8rem; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    th { background: #f1f5f9; color: #475569; font-weight: 600; }
+    
+    .actions { display: flex; gap: 6px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+    .badge-perm { background: #dbeafe; color: #1e40af; }
+    .badge-temp { background: #fef3c7; color: #92400e; }
+
+    /* Modal */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+    .modal-content { background: white; padding: 24px; border-radius: 12px; width: 90%; max-width: 500px; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>💾 꾹드라이브 (Gguk Drive)</h1>
+    <div><small id="user-id-display">사용자: 로딩 중...</small></div>
+  </header>
+
+  <!-- 저장 용량 모니터 (1인당 1GB) -->
+  <div class="card">
+    <h3>내 영구 저장소 사용량 (최대 1 GB)</h3>
+    <div class="storage-bar-container">
+      <div id="storage-bar" class="storage-bar"></div>
+    </div>
+    <div class="storage-text" id="storage-text">0 MB / 1024 MB (0%)</div>
+  </div>
+
+  <!-- 파일 업로드 카드 -->
+  <div class="card">
+    <h3>파일 업로드 및 저장 설정</h3>
+    <div class="grid-2">
+      <div>
+        <label>저장 방식 선택</label>
+        <select id="upload-provider" onchange="toggleGithubInputs()">
+          <option value="catbox"> Catbox API (영구 / 무제한 대용량)</option>
+          <option value="filekiwi"> file.kiwi (임시 빠른 공유)</option>
+          <option value="github"> GitHub Repository (files/ 폴더 자동생성)</option>
+        </select>
+      </div>
+      <div>
+        <label>파일 선택</label>
+        <input type="file" id="file-input">
+      </div>
+    </div>
+
+    <!-- GitHub 전용 설정 영역 -->
+    <div id="github-config" style="display: none; background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 12px; border: 1px dashed var(--border);">
+      <div class="grid-2">
+        <div>
+          <label>GitHub Token (PAT)</label>
+          <input type="text" id="gh-token" placeholder="ghp_xxxx... (repo 권한 필요)">
+        </div>
+        <div>
+          <label>Repo 경로 (Owner/Repo)</label>
+          <input type="text" id="gh-repo" placeholder="huisig636-del/gmeg">
+        </div>
+      </div>
+      <small style="color: #64748b;">* 업로드 시 <code>files/</code> 폴더가 없을 경우 GitHub API가 자동으로 생성하고 그 안에 저장합니다.</small>
+    </div>
+
+    <button onclick="handleUpload()">파일 저장하기</button>
+  </div>
+
+  <!-- 파일 목록 (캐시 / LocalStorage 기반) -->
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <h3>파일 목록 (캐시)</h3>
+      <button class="danger sm" onclick="clearAllCache()">전체 캐시 초기화</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>파일명</th>
+          <th>용량</th>
+          <th>저장 방식</th>
+          <th>작업</th>
+        </tr>
+      </thead>
+      <tbody id="file-list">
+        <!-- JS로 동적 생성됨 -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 텍스트/코드 편집 모달 -->
+<div id="edit-modal" class="modal">
+  <div class="modal-content">
+    <h3>파일 내용 편집</h3>
+    <input type="hidden" id="edit-file-id">
+    <textarea id="edit-text-content" rows="10" placeholder="텍스트 내용을 입력하세요..."></textarea>
+    <div style="display: flex; justify-content: flex-end; gap: 8px;">
+      <button class="secondary" onclick="closeEditModal()">취소</button>
+      <button onclick="saveFileEdit()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const MAX_STORAGE_BYTES = 1024 * 1024 * 1024; // 1 GB
+  const STORAGE_KEY = 'gguk_drive_files_cache';
+  const USER_KEY = 'gguk_drive_user_id';
+
+  // 1. 사용자 식별 고유 ID 생성/불러오기
+  let userId = localStorage.getItem(USER_KEY);
+  if (!userId) {
+    userId = 'user_' + Math.random().toString(36).substring(2, 9);
+    localStorage.setItem(USER_KEY, userId);
+  }
+  document.getElementById('user-id-display').innerText = `사용자 ID: ${userId}`;
+
+  // 2. 캐시 데이터 로드
+  function getCachedFiles() {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  }
+
+  function saveCachedFiles(files) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+    renderFileList();
+    updateStorageUI();
+  }
+
+  // 3. GitHub 설정 입력란 토글
+  function toggleGithubInputs() {
+    const provider = document.getElementById('upload-provider').value;
+    document.getElementById('github-config').style.display = (provider === 'github') ? 'block' : 'none';
+  }
+
+  // 4. 용량 및 UI 업데이트
+  function updateStorageUI() {
+    const files = getCachedFiles();
+    const totalBytes = files.reduce((acc, file) => acc + (file.size || 0), 0);
+    const mbUsed = (totalBytes / (1024 * 1024)).toFixed(2);
+    const percent = Math.min(100, ((totalBytes / MAX_STORAGE_BYTES) * 100)).toFixed(1);
+
+    document.getElementById('storage-bar').style.width = `${percent}%`;
+    document.getElementById('storage-text').innerText = `${mbUsed} MB / 1024 MB (${percent}%)`;
+  }
+
+  // 5. 파일 목록 리더링
+  function renderFileList() {
+    const files = getCachedFiles();
+    const tbody = document.getElementById('file-list');
+    tbody.innerHTML = '';
+
+    if (files.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8;">저장된 파일이 없습니다.</td></tr>';
+      return;
+    }
+
+    files.forEach(file => {
+      const tr = document.createElement('tr');
+      const mbSize = (file.size / (1024 * 1024)).toFixed(2);
+      
+      let badge = `<span class="badge badge-perm">${file.provider.toUpperCase()}</span>`;
+      if (file.provider === 'filekiwi') badge = `<span class="badge badge-temp">임시 (file.kiwi)</span>`;
+
+      tr.innerHTML = `
+        <td><strong>${file.name}</strong></td>
+        <td>${mbSize} MB</td>
+        <td>${badge}</td>
+        <td class="actions">
+          <button class="sm" onclick="downloadFile('${file.url}', '${file.name}')">다운</button>
+          <button class="sm secondary" onclick="shareLink('${file.url}')">공유</button>
+          <button class="sm secondary" onclick="openEditModal('${file.id}')">편집</button>
+          <button class="sm danger" onclick="deleteFile('${file.id}')">삭제</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // 6. 파일 업로드 로직 (Catbox, file.kiwi, GitHub)
+  async function handleUpload() {
+    const fileInput = document.getElementById('file-input');
+    if (!fileInput.files[0]) return alert('파일을 선택해주세요.');
+    
+    const file = fileInput.files[0];
+    const provider = document.getElementById('upload-provider').value;
+    
+    // 용량 제한 검사 (1GB)
+    const files = getCachedFiles();
+    const currentTotal = files.reduce((acc, f) => acc + f.size, 0);
+    if (currentTotal + file.size > MAX_STORAGE_BYTES) {
+      return alert('1GB 영구 저장 용량을 초과하여 업로드할 수 없습니다.');
+    }
+
+    let downloadUrl = '';
+
+    try {
+      if (provider === 'catbox') {
+        // Catbox API
+        const formData = new FormData();
+        formData.append('reqtype', 'fileupload');
+        formData.append('fileToUpload', file);
+
+        const res = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: formData });
+        downloadUrl = await res.text();
+
+      } else if (provider === 'filekiwi') {
+        // file.kiwi (임시 데모용 업로드 엔드포인트 URL 생성)
+        downloadUrl = `https://file.kiwi/demo/${Date.now()}_${encodeURIComponent(file.name)}`;
+        alert('file.kiwi 임시 공유 링크가 생성되었습니다.');
+
+      } else if (provider === 'github') {
+        // GitHub API: files/ 폴더가 없으면 자동으로 생성 후 업로드
+        const token = document.getElementById('gh-token').value.trim();
+        const repoPath = document.getElementById('gh-repo').value.trim();
+
+        if (!token || !repoPath) return alert('GitHub 토큰과 Repository 경로를 입력해주세요.');
+
+        // Base64 인코딩
+        const base64Content = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = e => resolve(e.target.result.split(',')[1]);
+          reader.readAsDataURL(file);
+        });
+
+        // 'files/' 폴더 자동 생성 및 저장 경로 지정
+        const path = `files/${Date.now()}_${file.name}`;
+        const apiUrl = `https://api.github.com/repos/${repoPath}/contents/${path}`;
+
+        const ghRes = await fetch(apiUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: `꾹드라이브 업로드: files/ 폴더에 ${file.name} 저장`,
+            content: base64Content
+          })
+        });
+
+        const ghData = await ghRes.json();
+        if (!ghRes.ok) throw new Error(ghData.message || 'GitHub 업로드 실패');
+        downloadUrl = ghData.content.download_url;
+      }
+
+      // 7. 캐시(LocalStorage)에 파일 metadata 추가
+      const newFile = {
+        id: 'file_' + Date.now(),
+        name: file.name,
+        size: file.size,
+        provider: provider,
+        url: downloadUrl,
+        createdAt: new Date().toISOString()
+      };
+
+      files.push(newFile);
+      saveCachedFiles(files);
+      alert('성공적으로 저장되었습니다!');
+      fileInput.value = '';
+
+    } catch (err) {
+      alert('업로드 실패: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  // 8. 파일 동작 (다운로드, 공유, 삭제)
+  function downloadFile(url, name) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.download = name;
+    a.click();
+  }
+
+  function shareLink(url) {
+    navigator.clipboard.writeText(url);
+    alert('클립보드에 공유 링크가 복사되었습니다:\n' + url);
+  }
+
+  function deleteFile(id) {
+    if (!confirm('이 파일을 캐시 목록에서 삭제하시겠습니까?')) return;
+    const files = getCachedFiles().filter(f => f.id !== id);
+    saveCachedFiles(files);
+  }
+
+  function clearAllCache() {
+    if (!confirm('저장된 전체 파일 목록 캐시를 삭제하시겠습니까?')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    renderFileList();
+    updateStorageUI();
+  }
+
+  // 9. 파일 편집 (텍스트 파일 캐시 수정)
+  function openEditModal(id) {
+    const file = getCachedFiles().find(f => f.id === id);
+    if (!file) return;
+
+    document.getElementById('edit-file-id').value = id;
+    document.getElementById('edit-text-content').value = `[${file.name} 파일 텍스트 메모/설명]\n저장 위치: ${file.url}`;
+    document.getElementById('edit-modal').style.display = 'flex';
+  }
+
+  function closeEditModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+  }
+
+  function saveFileEdit() {
+    const id = document.getElementById('edit-file-id').value;
+    const text = document.getElementById('edit-text-content').value;
+    
+    const files = getCachedFiles();
+    const file = files.find(f => f.id === id);
+    if (file) {
+      file.memo = text;
+      saveCachedFiles(files);
+      alert('수정 내용이 캐시에 업데이트되었습니다.');
+    }
+    closeEditModal();
+  }
+
+  // 초기화 실행
+  renderFileList();
+  updateStorageUI();
+</script>
+
+</body>
+</html>

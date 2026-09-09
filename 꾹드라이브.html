@@ -70,18 +70,13 @@
     <h3>파일 업로드</h3>
     <div class="grid-2">
       <div>
-        <!-- 보관 시간 선택 드롭다운 -->
-        <label>자동 파기 시간 설정</label>
-        <select id="expires-select">
-          <option value="1h">1시간</option>
-          <option value="12h">12시간</option>
-          <option value="24h" selected>1일 (기본)</option>
-          <option value="72h">3일</option>
-          <option value="168h">7일</option>
+        <label>보관 서비스 엔진</label>
+        <select disabled>
+          <option>Catbox Storage Engine (안정적인 영구/임시 저장)</option>
         </select>
       </div>
       <div>
-        <label>파일 선택 (최대 1GB / 쇼츠 및 고화질 영상 가능)</label>
+        <label>파일 선택 (최대 200MB / 쇼츠 및 영상 가능)</label>
         <input type="file" id="file-input">
       </div>
     </div>
@@ -99,7 +94,7 @@
         <tr>
           <th>파일명</th>
           <th>용량</th>
-          <th>보관 설정</th>
+          <th>상태</th>
           <th>작업</th>
         </tr>
       </thead>
@@ -173,7 +168,7 @@
       tr.innerHTML = `
         <td><strong>${file.name}</strong></td>
         <td>${mbSize} MB</td>
-        <td><span class="badge badge-time">⏱️ ${file.expireText || '1일'}</span></td>
+        <td><span class="badge badge-time">공유 가능</span></td>
         <td class="actions">
           <button class="sm" onclick="downloadFile('${file.url}')">다운로드</button>
           <button class="sm secondary" onclick="shareLink('${file.url}')">공유</button>
@@ -188,13 +183,14 @@
   async function handleUpload() {
     const fileInput = document.getElementById('file-input');
     const uploadBtn = document.getElementById('upload-btn');
-    const expiresSelect = document.getElementById('expires-select');
 
     if (!fileInput.files[0]) return alert('파일을 선택해주세요.');
     
     const file = fileInput.files[0];
-    const expiresValue = expiresSelect.value;
-    const expiresText = expiresSelect.options[expiresSelect.selectedIndex].text;
+
+    if (file.size > 200 * 1024 * 1024) {
+      return alert('Catbox 익명 API는 단일 파일 최대 200MB까지 지원합니다.');
+    }
 
     uploadBtn.disabled = true;
     uploadBtn.innerText = '⏳ 영상/파일 저장 중...';
@@ -202,23 +198,22 @@
     try {
       const formData = new FormData();
       formData.append('reqtype', 'fileupload');
-      formData.append('time', expiresValue);
       formData.append('fileToUpload', file);
 
-      // CORS 우회가 지원되는 Litterbox API 사용
-      const res = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', {
+      // Catbox 메인 API 엔드포인트
+      const res = await fetch('https://catbox.moe/user/api.php', {
         method: 'POST',
         body: formData
       });
 
       if (!res.ok) {
-        throw new Error('서버 업로드에 실패했습니다.');
+        throw new Error(`서버 응답 에러 (${res.status})`);
       }
 
       const fileUrl = (await res.text()).trim();
 
       if (!fileUrl.startsWith('http')) {
-        throw new Error(fileUrl || '올바른 응답을 받지 못했습니다.');
+        throw new Error('서버 처리 오류: ' + fileUrl);
       }
 
       const files = getCachedFiles();
@@ -227,12 +222,11 @@
         name: file.name,
         size: file.size,
         url: fileUrl,
-        expireText: expiresText,
         createdAt: new Date().toISOString()
       });
 
       saveCachedFiles(files);
-      alert(`업로드 성공! (${expiresText} 동안 유지됩니다)`);
+      alert('업로드 성공!');
       fileInput.value = '';
 
     } catch (err) {

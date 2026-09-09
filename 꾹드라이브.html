@@ -61,7 +61,7 @@
 
   <!-- 저장 용량 현황 -->
   <div class="card">
-    <h3>현재 업로드된 용량 (총 용량 제한 없음 / 파일당 최대 100MB)</h3>
+    <h3>현재 업로드된 총용량 (대용량 영상 지원)</h3>
     <div style="font-size: 1.2rem; font-weight: bold; color: var(--primary); margin-top: 8px;" id="total-usage-text">0 MB 업로드됨</div>
   </div>
 
@@ -70,16 +70,13 @@
     <h3>파일 업로드</h3>
     <div class="grid-2">
       <div>
-        <label>보관 기간 설정</label>
-        <select id="expire-select">
-          <option value="172800" selected>48시간 (기본값)</option>
-          <option value="86400">24시간</option>
-          <option value="21600">6시간</option>
-          <option value="3600">1시간</option>
+        <label>저장 엔진</label>
+        <select disabled>
+          <option>Pixeldrain API (대용량 영상/CORS 지원)</option>
         </select>
       </div>
       <div>
-        <label>파일 선택 (최대 100MB)</label>
+        <label>파일 선택 (쇼츠/영상 가능)</label>
         <input type="file" id="file-input">
       </div>
     </div>
@@ -121,7 +118,6 @@
 </div>
 
 <script>
-  const MAX_SINGLE_FILE_BYTES = 100 * 1024 * 1024; // 100 MB 제한
   const STORAGE_KEY = 'gguk_drive_files_cache';
   const USER_KEY = 'gguk_drive_user_id';
 
@@ -172,7 +168,7 @@
       tr.innerHTML = `
         <td><strong>${file.name}</strong></td>
         <td>${mbSize} MB</td>
-        <td><span class="badge badge-time">공유 가능</span></td>
+        <td><span class="badge badge-time">공유/다운로드 가능</span></td>
         <td class="actions">
           <button class="sm" onclick="downloadFile('${file.url}')">다운로드</button>
           <button class="sm secondary" onclick="shareLink('${file.url}')">공유</button>
@@ -187,38 +183,32 @@
   async function handleUpload() {
     const fileInput = document.getElementById('file-input');
     const uploadBtn = document.getElementById('upload-btn');
-    const expireTime = document.getElementById('expire-select').value;
 
     if (!fileInput.files[0]) return alert('파일을 선택해주세요.');
     
     const file = fileInput.files[0];
 
-    if (file.size > MAX_SINGLE_FILE_BYTES) {
-      return alert('단일 파일 크기는 최대 100MB까지 가능합니다.');
-    }
-
     uploadBtn.disabled = true;
-    uploadBtn.innerText = '⏳ 파일 저장 중...';
+    uploadBtn.innerText = '⏳ 영상/파일 저장 중...';
 
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('expire', expireTime);
 
-      // CORS 우회가 완벽 지원되는 REST API 사용
-      const res = await fetch('https://tmpfiles.org/api/v1/upload', {
+      // Pixeldrain API (CORS 허용 + 파일당 대용량 지원)
+      const res = await fetch('https://pixeldrain.com/api/file', {
         method: 'POST',
         body: formData
       });
 
       const resData = await res.json();
 
-      if (!res.ok || resData.status !== 'success') {
+      if (!res.ok || !resData.success) {
         throw new Error(resData.message || '서버 업로드에 실패했습니다.');
       }
 
-      // tmpfiles.org/123/name.png -> tmpfiles.org/dl/123/name.png (직접 다운로드 URL 전환)
-      const directUrl = resData.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+      // 파일 다운로드 Direct URL 생성
+      const directUrl = `https://pixeldrain.com/api/file/${resData.id}?download`;
 
       const files = getCachedFiles();
       files.push({

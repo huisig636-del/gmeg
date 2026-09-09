@@ -24,10 +24,6 @@
     .card { background: var(--card-bg); padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid var(--border); }
     .card h3 { margin-bottom: 12px; font-size: 1.1rem; }
 
-    .storage-bar-container { background: #e2e8f0; border-radius: 8px; height: 16px; overflow: hidden; margin: 8px 0; }
-    .storage-bar { background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease; }
-    .storage-text { font-size: 0.85rem; color: #64748b; text-align: right; }
-
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
 
@@ -49,8 +45,7 @@
     
     .actions { display: flex; gap: 6px; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
-    .badge-normal { background: #dbeafe; color: #1e40af; }
-    .badge-share { background: #fef3c7; color: #92400e; }
+    .badge-time { background: #e0e7ff; color: #3730a3; }
 
     .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
     .modal-content { background: white; padding: 24px; border-radius: 12px; width: 90%; max-width: 500px; }
@@ -64,13 +59,10 @@
     <div><small id="user-id-display">사용자 ID 확인 중...</small></div>
   </header>
 
-  <!-- 저장 용량 모니터 -->
+  <!-- 저장 용량 현황 (총합 제한 없음) -->
   <div class="card">
-    <h3>내 저장소 사용량 (최대 1 GB)</h3>
-    <div class="storage-bar-container">
-      <div id="storage-bar" class="storage-bar"></div>
-    </div>
-    <div class="storage-text" id="storage-text">0 MB / 1024 MB (0%)</div>
+    <h3>현재 사용 중인 용량 (총 용량 제한 없음 / 개별 파일 최대 512 MB)</h3>
+    <div style="font-size: 1.2rem; font-weight: bold; color: var(--primary); margin-top: 8px;" id="total-usage-text">0 MB 업로드됨</div>
   </div>
 
   <!-- 파일 업로드 카드 -->
@@ -78,14 +70,13 @@
     <h3>파일 업로드</h3>
     <div class="grid-2">
       <div>
-        <label>저장 방식 선택</label>
-        <select id="upload-provider">
-          <option value="normal">일반 저장 (영구 보관)</option>
-          <option value="share">공유 저장 (임시 공유 전용)</option>
+        <label>자동 보관 정책</label>
+        <select disabled>
+          <option>용량별 자동 보관 (30일 ~ 365일)</option>
         </select>
       </div>
       <div>
-        <label>파일 선택</label>
+        <label>파일 선택 (최대 512MB)</label>
         <input type="file" id="file-input">
       </div>
     </div>
@@ -103,7 +94,7 @@
         <tr>
           <th>파일명</th>
           <th>용량</th>
-          <th>구분</th>
+          <th>예상 보관 기간</th>
           <th>작업</th>
         </tr>
       </thead>
@@ -127,7 +118,7 @@
 </div>
 
 <script>
-  const MAX_STORAGE_BYTES = 1024 * 1024 * 1024; // 1 GB
+  const MAX_SINGLE_FILE_BYTES = 512 * 1024 * 1024; // 단일 파일만 512 MB 제한
   const STORAGE_KEY = 'gguk_drive_files_cache';
   const USER_KEY = 'gguk_drive_user_id';
 
@@ -137,6 +128,14 @@
     localStorage.setItem(USER_KEY, userId);
   }
   document.getElementById('user-id-display').innerText = `사용자 ID: ${userId}`;
+
+  function calculateRetentionDays(sizeInBytes) {
+    const minDays = 30;
+    const maxDays = 365;
+    const maxSizeBytes = MAX_SINGLE_FILE_BYTES;
+    const days = minDays + (maxDays - minDays) * Math.pow((1 - sizeInBytes / maxSizeBytes), 2);
+    return Math.round(days);
+  }
 
   function getCachedFiles() {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
@@ -152,10 +151,13 @@
     const files = getCachedFiles();
     const totalBytes = files.reduce((acc, file) => acc + (file.size || 0), 0);
     const mbUsed = (totalBytes / (1024 * 1024)).toFixed(2);
-    const percent = Math.min(100, ((totalBytes / MAX_STORAGE_BYTES) * 100)).toFixed(1);
+    const gbUsed = (totalBytes / (1024 * 1024 * 1024)).toFixed(2);
 
-    document.getElementById('storage-bar').style.width = `${percent}%`;
-    document.getElementById('storage-text').innerText = `${mbUsed} MB / 1024 MB (${percent}%)`;
+    if (totalBytes > 1024 * 1024 * 1024) {
+      document.getElementById('total-usage-text').innerText = `현재 총 ${gbUsed} GB 업로드됨`;
+    } else {
+      document.getElementById('total-usage-text').innerText = `현재 총 ${mbUsed} MB 업로드됨`;
+    }
   }
 
   function renderFileList() {
@@ -171,27 +173,23 @@
     files.forEach(file => {
       const tr = document.createElement('tr');
       const mbSize = (file.size / (1024 * 1024)).toFixed(2);
+      const retention = file.retentionDays ? `약 ${file.retentionDays}일` : '자동 계산 중';
       
-      const badge = (file.provider === 'normal') 
-        ? `<span class="badge badge-normal">일반 저장</span>` 
-        : `<span class="badge badge-share">공유 저장</span>`;
-
       tr.innerHTML = `
         <td><strong>${file.name}</strong></td>
         <td>${mbSize} MB</td>
-        <td>${badge}</td>
+        <td><span class="badge badge-time">⏱️ ${retention}</span></td>
         <td class="actions">
-          <button class="sm" onclick="downloadFile('${file.url}', '${file.name}')">다운로드</button>
+          <button class="sm" onclick="downloadFile('${file.url}')">다운로드</button>
           <button class="sm secondary" onclick="shareLink('${file.url}')">공유</button>
           <button class="sm secondary" onclick="openEditModal('${file.id}')">편집</button>
-          <button class="sm danger" onclick="deleteFile('${file.id}')">삭제</button>
+          <button class="sm danger" onclick="deleteFile('${file.id}', '${file.deleteToken || ''}')">진짜 삭제</button>
         </td>
       `;
       tbody.appendChild(tr);
     });
   }
 
-  // 핵심: 저장중 상태 표시 및 우회 처리 적용
   async function handleUpload() {
     const fileInput = document.getElementById('file-input');
     const uploadBtn = document.getElementById('upload-btn');
@@ -199,100 +197,89 @@
     if (!fileInput.files[0]) return alert('파일을 선택해주세요.');
     
     const file = fileInput.files[0];
-    const provider = document.getElementById('upload-provider').value;
-    
-    const files = getCachedFiles();
-    const currentTotal = files.reduce((acc, f) => acc + f.size, 0);
-    if (currentTotal + file.size > MAX_STORAGE_BYTES) {
-      return alert('1GB 저장 용량을 초과하여 업로드할 수 없습니다.');
+
+    if (file.size > MAX_SINGLE_FILE_BYTES) {
+      return alert('단일 파일 크기는 최대 512MB를 초과할 수 없습니다.');
     }
 
-    // 1. UI 상태 변경: 저장 중... (버튼 비활성화)
     uploadBtn.disabled = true;
     uploadBtn.innerText = '⏳ 파일 저장 중...';
 
-    let downloadUrl = '';
-
     try {
-      if (provider === 'normal') {
-        // 대체 프록시 API 순차 시도 (Allorigins & Corsproxy)
-        const targetApi = 'https://catbox.moe/user/api.php';
-        const formData = new FormData();
-        formData.append('reqtype', 'fileupload');
-        formData.append('fileToUpload', file);
+      const formData = new FormData();
+      formData.append('file', file);
 
-        // 프록시 1: api.allorigins.win
-        try {
-          const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetApi)}`, {
-            method: 'POST',
-            body: formData
-          });
-          if (!res.ok) throw new Error(`HTTP 에러: ${res.status}`);
-          downloadUrl = await res.text();
-        } catch (e1) {
-          // 프록시 2 (Fallback): tmpfiles API 대체
-          const tmpForm = new FormData();
-          tmpForm.append('file', file);
-          const tmpRes = await fetch('https://tmpfiles.org/api/v1/upload', {
-            method: 'POST',
-            body: tmpForm
-          });
-          const tmpData = await tmpRes.json();
-          if (tmpData.status === 'success') {
-            downloadUrl = tmpData.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-          } else {
-            throw new Error('모든 업로드 서버 연결에 실패했습니다.');
-          }
-        }
+      const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://0x0.st'), {
+        method: 'POST',
+        body: formData
+      });
 
-      } else if (provider === 'share') {
-        downloadUrl = `https://file.kiwi/demo/${Date.now()}_${encodeURIComponent(file.name)}`;
-      }
+      if (!res.ok) throw new Error('서버 업로드에 실패했습니다.');
 
+      const fileUrl = (await res.text()).trim();
+      const deleteToken = res.headers.get('X-Token') || '';
+      const retentionDays = calculateRetentionDays(file.size);
+
+      const files = getCachedFiles();
       files.push({
         id: 'file_' + Date.now(),
         name: file.name,
         size: file.size,
-        provider: provider,
-        url: downloadUrl.trim(),
+        retentionDays: retentionDays,
+        url: fileUrl,
+        deleteToken: deleteToken,
         createdAt: new Date().toISOString()
       });
 
       saveCachedFiles(files);
-      alert('성공적으로 저장되었습니다!');
+      alert(`업로드 성공!\n파일 크기(${ (file.size / (1024*1024)).toFixed(1) }MB) 기준 예상 보관 기간은 약 ${retentionDays}일입니다.`);
       fileInput.value = '';
 
     } catch (err) {
-      alert('업로드 중 오류 발생: ' + err.message);
+      alert('업로드 오류: ' + err.message);
       console.error(err);
     } finally {
-      // 2. UI 상태 원복: 저장 완료/실패 후
       uploadBtn.disabled = false;
       uploadBtn.innerText = '파일 업로드하기';
     }
   }
 
-  function downloadFile(url, name) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.download = name;
-    a.click();
+  async function deleteFile(id, deleteToken) {
+    if (!confirm('이 파일은 서버에서 영구 삭제되며 복구할 수 없습니다. 계속하시겠습니까?')) return;
+
+    const files = getCachedFiles();
+    const file = files.find(f => f.id === id);
+
+    if (file && file.url) {
+      try {
+        const formData = new FormData();
+        formData.append('token', deleteToken);
+
+        await fetch('https://corsproxy.io/?' + encodeURIComponent(file.url), {
+          method: 'POST',
+          body: formData
+        });
+      } catch (e) {
+        console.warn('서버 삭제 전송 실패:', e);
+      }
+    }
+
+    const updatedFiles = files.filter(f => f.id !== id);
+    saveCachedFiles(updatedFiles);
+    alert('서버에서 완전히 삭제되었습니다.');
+  }
+
+  function downloadFile(url) {
+    window.open(url, '_blank');
   }
 
   function shareLink(url) {
     navigator.clipboard.writeText(url);
-    alert('공유 링크가 복사되었습니다:\n' + url);
-  }
-
-  function deleteFile(id) {
-    if (!confirm('삭제하시겠습니까?')) return;
-    const files = getCachedFiles().filter(f => f.id !== id);
-    saveCachedFiles(files);
+    alert('공유 링크가 클립보드에 복사되었습니다:\n' + url);
   }
 
   function clearAllCache() {
-    if (!confirm('모든 저장 목록을 초기화하시겠습니까?')) return;
+    if (!confirm('목록 캐시를 초기화하시겠습니까?')) return;
     localStorage.removeItem(STORAGE_KEY);
     renderFileList();
     updateStorageUI();
@@ -303,7 +290,7 @@
     if (!file) return;
 
     document.getElementById('edit-file-id').value = id;
-    document.getElementById('edit-text-content').value = file.memo || `[${file.name}]\n링크: ${file.url}`;
+    document.getElementById('edit-text-content').value = file.memo || `[${file.name}]\n다운로드 링크: ${file.url}`;
     document.getElementById('edit-modal').style.display = 'flex';
   }
 

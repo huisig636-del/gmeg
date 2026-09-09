@@ -61,7 +61,7 @@
 
   <!-- 저장 용량 현황 -->
   <div class="card">
-    <h3>현재 업로드된 총용량 (대용량 영상 지원)</h3>
+    <h3>현재 업로드된 총용량 (대용량 영상 지원 / 최대 1GB)</h3>
     <div style="font-size: 1.2rem; font-weight: bold; color: var(--primary); margin-top: 8px;" id="total-usage-text">0 MB 업로드됨</div>
   </div>
 
@@ -70,13 +70,20 @@
     <h3>파일 업로드</h3>
     <div class="grid-2">
       <div>
-        <label>저장 엔진</label>
-        <select disabled>
-          <option>Pixeldrain API (대용량 영상/CORS 지원)</option>
+        <!-- 보관 시간 선택 드롭다운 -->
+        <label>자동 파기 시간 설정</label>
+        <select id="expires-select">
+          <option value="1h">1시간</option>
+          <option value="6h">6시간</option>
+          <option value="12h">12시간</option>
+          <option value="1d" selected>1일 (기본)</option>
+          <option value="3d">3일</option>
+          <option value="7d">7일</option>
+          <option value="14d">14일</option>
         </select>
       </div>
       <div>
-        <label>파일 선택 (쇼츠/영상 가능)</label>
+        <label>파일 선택 (최대 1GB / 쇼츠/영상 가능)</label>
         <input type="file" id="file-input">
       </div>
     </div>
@@ -94,7 +101,7 @@
         <tr>
           <th>파일명</th>
           <th>용량</th>
-          <th>상태</th>
+          <th>보관 설정</th>
           <th>작업</th>
         </tr>
       </thead>
@@ -168,7 +175,7 @@
       tr.innerHTML = `
         <td><strong>${file.name}</strong></td>
         <td>${mbSize} MB</td>
-        <td><span class="badge badge-time">공유/다운로드 가능</span></td>
+        <td><span class="badge badge-time">⏱️ ${file.expireText || '1일'}</span></td>
         <td class="actions">
           <button class="sm" onclick="downloadFile('${file.url}')">다운로드</button>
           <button class="sm secondary" onclick="shareLink('${file.url}')">공유</button>
@@ -183,20 +190,25 @@
   async function handleUpload() {
     const fileInput = document.getElementById('file-input');
     const uploadBtn = document.getElementById('upload-btn');
+    const expiresSelect = document.getElementById('expires-select');
 
     if (!fileInput.files[0]) return alert('파일을 선택해주세요.');
     
     const file = fileInput.files[0];
+    const expiresValue = expiresSelect.value;
+    const expiresText = expiresSelect.options[expiresSelect.selectedIndex].text;
 
     uploadBtn.disabled = true;
-    uploadBtn.innerText = '⏳ 영상/파일 저장 중...';
+    uploadBtn.innerText = '⏳ 대용량 파일 업로드 중...';
 
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('expires', expiresValue); // 보관 시간 지정
+      formData.append('autoDelete', 'true');
 
-      // Pixeldrain API (CORS 허용 + 파일당 대용량 지원)
-      const res = await fetch('https://pixeldrain.com/api/file', {
+      // CORS 우회 및 무료 1GB 업로드가 보장되는 API
+      const res = await fetch('https://file.io/', {
         method: 'POST',
         body: formData
       });
@@ -204,23 +216,21 @@
       const resData = await res.json();
 
       if (!res.ok || !resData.success) {
-        throw new Error(resData.message || '서버 업로드에 실패했습니다.');
+        throw new Error(resData.message || '업로드 처리에 실패했습니다.');
       }
-
-      // 파일 다운로드 Direct URL 생성
-      const directUrl = `https://pixeldrain.com/api/file/${resData.id}?download`;
 
       const files = getCachedFiles();
       files.push({
         id: 'file_' + Date.now(),
         name: file.name,
         size: file.size,
-        url: directUrl,
+        url: resData.link,
+        expireText: expiresText,
         createdAt: new Date().toISOString()
       });
 
       saveCachedFiles(files);
-      alert('업로드 성공!');
+      alert(`업로드 성공! (${expiresText} 동안 유지됩니다)`);
       fileInput.value = '';
 
     } catch (err) {

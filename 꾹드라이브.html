@@ -70,13 +70,17 @@
     <h3>파일 업로드</h3>
     <div class="grid-2">
       <div>
-        <label>보관 서비스 엔진</label>
-        <select disabled>
-          <option>Catbox + CORS Bypass Proxy</option>
+        <label>자동 파기 시간 설정</label>
+        <select id="expires-select">
+          <option value="1">1시간</option>
+          <option value="2">2시간</option>
+          <option value="6">6시간</option>
+          <option value="12">12시간</option>
+          <option value="24" selected>24시간 (기본)</option>
         </select>
       </div>
       <div>
-        <label>파일 선택 (최대 200MB / 쇼츠 및 영상 가능)</label>
+        <label>파일 선택 (최대 10GB / 쇼츠 및 영상 가능)</label>
         <input type="file" id="file-input">
       </div>
     </div>
@@ -94,7 +98,7 @@
         <tr>
           <th>파일명</th>
           <th>용량</th>
-          <th>상태</th>
+          <th>보관 설정</th>
           <th>작업</th>
         </tr>
       </thead>
@@ -168,7 +172,7 @@
       tr.innerHTML = `
         <td><strong>${file.name}</strong></td>
         <td>${mbSize} MB</td>
-        <td><span class="badge badge-time">공유 가능</span></td>
+        <td><span class="badge badge-time">⏱️ ${file.expireText || '24시간'}</span></td>
         <td class="actions">
           <button class="sm" onclick="downloadFile('${file.url}')">다운로드</button>
           <button class="sm secondary" onclick="shareLink('${file.url}')">공유</button>
@@ -183,52 +187,47 @@
   async function handleUpload() {
     const fileInput = document.getElementById('file-input');
     const uploadBtn = document.getElementById('upload-btn');
+    const expiresSelect = document.getElementById('expires-select');
 
     if (!fileInput.files[0]) return alert('파일을 선택해주세요.');
     
     const file = fileInput.files[0];
-
-    if (file.size > 200 * 1024 * 1024) {
-      return alert('단일 파일 최대 200MB까지 가능합니다.');
-    }
+    const expiresText = expiresSelect.options[expiresSelect.selectedIndex].text;
 
     uploadBtn.disabled = true;
-    uploadBtn.innerText = '⏳ 영상/파일 저장 중...';
+    uploadBtn.innerText = '⏳ 영상/파일 업로드 중...';
 
     try {
       const formData = new FormData();
-      formData.append('reqtype', 'fileupload');
-      formData.append('fileToUpload', file);
+      formData.append('file', file);
 
-      // CORS 헤더 우회 프록시 적용
-      const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://catbox.moe/user/api.php');
-
-      const res = await fetch(proxyUrl, {
+      // CORS가 공식 허용된 tmpfiles.org API
+      const res = await fetch('https://tmpfiles.org/api/v1/upload', {
         method: 'POST',
         body: formData
       });
 
-      if (!res.ok) {
-        throw new Error(`서버 응답 오류 (${res.status})`);
+      const resData = await res.json();
+
+      if (!res.ok || resData.status !== 'success') {
+        throw new Error(resData.message || '업로드 처리에 실패했습니다.');
       }
 
-      const fileUrl = (await res.text()).trim();
-
-      if (!fileUrl.startsWith('http')) {
-        throw new Error('업로드 처리 실패');
-      }
+      // tmpfiles.org 전용 직링크 변환 (URL 내의 tmpfiles.org/ 뒤에 dl/ 추가)
+      const downloadUrl = resData.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
 
       const files = getCachedFiles();
       files.push({
         id: 'file_' + Date.now(),
         name: file.name,
         size: file.size,
-        url: fileUrl,
+        url: downloadUrl,
+        expireText: expiresText,
         createdAt: new Date().toISOString()
       });
 
       saveCachedFiles(files);
-      alert('업로드 성공!');
+      alert(`업로드 성공! (${expiresText} 동안 다운로드 가능)`);
       fileInput.value = '';
 
     } catch (err) {

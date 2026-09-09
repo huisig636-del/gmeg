@@ -59,9 +59,9 @@
     <div><small id="user-id-display">사용자 ID 확인 중...</small></div>
   </header>
 
-  <!-- 저장 용량 현황 (총합 제한 없음) -->
+  <!-- 저장 용량 현황 -->
   <div class="card">
-    <h3>현재 사용 중인 용량 (총 용량 제한 없음 / 개별 파일 최대 512 MB)</h3>
+    <h3>현재 사용 중인 용량 (총 용량 제한 없음 / 개별 파일 최대 2 GB)</h3>
     <div style="font-size: 1.2rem; font-weight: bold; color: var(--primary); margin-top: 8px;" id="total-usage-text">0 MB 업로드됨</div>
   </div>
 
@@ -70,13 +70,13 @@
     <h3>파일 업로드</h3>
     <div class="grid-2">
       <div>
-        <label>자동 보관 정책</label>
+        <label>저장 엔진</label>
         <select disabled>
-          <option>용량별 자동 보관 (30일 ~ 365일)</option>
+          <option>Direct File API (CORS 오류 방지)</option>
         </select>
       </div>
       <div>
-        <label>파일 선택 (최대 512MB)</label>
+        <label>파일 선택 (최대 2GB)</label>
         <input type="file" id="file-input">
       </div>
     </div>
@@ -94,7 +94,7 @@
         <tr>
           <th>파일명</th>
           <th>용량</th>
-          <th>예상 보관 기간</th>
+          <th>상태</th>
           <th>작업</th>
         </tr>
       </thead>
@@ -118,7 +118,6 @@
 </div>
 
 <script>
-  const MAX_SINGLE_FILE_BYTES = 512 * 1024 * 1024; // 단일 파일만 512 MB 제한
   const STORAGE_KEY = 'gguk_drive_files_cache';
   const USER_KEY = 'gguk_drive_user_id';
 
@@ -128,14 +127,6 @@
     localStorage.setItem(USER_KEY, userId);
   }
   document.getElementById('user-id-display').innerText = `사용자 ID: ${userId}`;
-
-  function calculateRetentionDays(sizeInBytes) {
-    const minDays = 30;
-    const maxDays = 365;
-    const maxSizeBytes = MAX_SINGLE_FILE_BYTES;
-    const days = minDays + (maxDays - minDays) * Math.pow((1 - sizeInBytes / maxSizeBytes), 2);
-    return Math.round(days);
-  }
 
   function getCachedFiles() {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
@@ -173,23 +164,23 @@
     files.forEach(file => {
       const tr = document.createElement('tr');
       const mbSize = (file.size / (1024 * 1024)).toFixed(2);
-      const retention = file.retentionDays ? `약 ${file.retentionDays}일` : '자동 계산 중';
       
       tr.innerHTML = `
         <td><strong>${file.name}</strong></td>
         <td>${mbSize} MB</td>
-        <td><span class="badge badge-time">⏱️ ${retention}</span></td>
+        <td><span class="badge badge-time">공유 가능</span></td>
         <td class="actions">
           <button class="sm" onclick="downloadFile('${file.url}')">다운로드</button>
           <button class="sm secondary" onclick="shareLink('${file.url}')">공유</button>
           <button class="sm secondary" onclick="openEditModal('${file.id}')">편집</button>
-          <button class="sm danger" onclick="deleteFile('${file.id}', '${file.deleteToken || ''}')">진짜 삭제</button>
+          <button class="sm danger" onclick="deleteFile('${file.id}')">삭제</button>
         </td>
       `;
       tbody.appendChild(tr);
     });
   }
 
+  // CORS 문제 없는 직접 업로드 API
   async function handleUpload() {
     const fileInput = document.getElementById('file-input');
     const uploadBtn = document.getElementById('upload-btn');
@@ -198,10 +189,6 @@
     
     const file = fileInput.files[0];
 
-    if (file.size > MAX_SINGLE_FILE_BYTES) {
-      return alert('단일 파일 크기는 최대 512MB를 초과할 수 없습니다.');
-    }
-
     uploadBtn.disabled = true;
     uploadBtn.innerText = '⏳ 파일 저장 중...';
 
@@ -209,30 +196,29 @@
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://0x0.st'), {
+      // file.io API로 직접 업로드 (CORS 차단 없음)
+      const res = await fetch('https://file.io', {
         method: 'POST',
         body: formData
       });
 
-      if (!res.ok) throw new Error('서버 업로드에 실패했습니다.');
+      const data = await res.json();
 
-      const fileUrl = (await res.text()).trim();
-      const deleteToken = res.headers.get('X-Token') || '';
-      const retentionDays = calculateRetentionDays(file.size);
+      if (!data.success) {
+        throw new Error(data.message || '업로드에 실패했습니다.');
+      }
 
       const files = getCachedFiles();
       files.push({
         id: 'file_' + Date.now(),
         name: file.name,
         size: file.size,
-        retentionDays: retentionDays,
-        url: fileUrl,
-        deleteToken: deleteToken,
+        url: data.link,
         createdAt: new Date().toISOString()
       });
 
       saveCachedFiles(files);
-      alert(`업로드 성공!\n파일 크기(${ (file.size / (1024*1024)).toFixed(1) }MB) 기준 예상 보관 기간은 약 ${retentionDays}일입니다.`);
+      alert('성공적으로 업로드되었습니다!');
       fileInput.value = '';
 
     } catch (err) {
@@ -244,29 +230,10 @@
     }
   }
 
-  async function deleteFile(id, deleteToken) {
-    if (!confirm('이 파일은 서버에서 영구 삭제되며 복구할 수 없습니다. 계속하시겠습니까?')) return;
-
-    const files = getCachedFiles();
-    const file = files.find(f => f.id === id);
-
-    if (file && file.url) {
-      try {
-        const formData = new FormData();
-        formData.append('token', deleteToken);
-
-        await fetch('https://corsproxy.io/?' + encodeURIComponent(file.url), {
-          method: 'POST',
-          body: formData
-        });
-      } catch (e) {
-        console.warn('서버 삭제 전송 실패:', e);
-      }
-    }
-
-    const updatedFiles = files.filter(f => f.id !== id);
-    saveCachedFiles(updatedFiles);
-    alert('서버에서 완전히 삭제되었습니다.');
+  function deleteFile(id) {
+    if (!confirm('목록에서 삭제하시겠습니까?')) return;
+    const files = getCachedFiles().filter(f => f.id !== id);
+    saveCachedFiles(files);
   }
 
   function downloadFile(url) {
@@ -279,7 +246,7 @@
   }
 
   function clearAllCache() {
-    if (!confirm('목록 캐시를 초기화하시겠습니까?')) return;
+    if (!confirm('목록을 초기화하시겠습니까?')) return;
     localStorage.removeItem(STORAGE_KEY);
     renderFileList();
     updateStorageUI();
